@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
 Data Preprocessing Pipeline
-Transforms raw training and test data according to specified requirements:
+Transforms raw training data according to specified requirements and splits it into train/validation/test sets:
 - Remove: day, month, id columns
 - Transform pdays: -1 -> 1000
 - Remove rows with null fields
 - Convert numeric fields to int32
 - Convert string fields to categorical while preserving meaning
+- Split processed data into train/validation/test sets (50k records each for val/test)
 """
 
 import pandas as pd
 import numpy as np
 import warnings
+from sklearn.model_selection import train_test_split
 warnings.filterwarnings('ignore')
 
 def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -138,6 +140,55 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     
     return df_processed
 
+def split_data(df: pd.DataFrame, val_size: int = 50000, test_size: int = 50000, random_state: int = 42) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Split the processed dataset into train, validation, and test sets.
+    
+    Args:
+        df (pd.DataFrame): Processed dataset to split
+        val_size (int): Number of records for validation set (default: 50000)
+        test_size (int): Number of records for test set (default: 50000)
+        random_state (int): Random seed for reproducibility (default: 42)
+        
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: Train, validation, and test datasets
+    """
+    print(f"Splitting data into train/validation/test sets...")
+    print(f"Total records: {len(df)}")
+    print(f"Validation size: {val_size}")
+    print(f"Test size: {test_size}")
+    
+    # Calculate remaining records for training
+    remaining_size = len(df) - val_size - test_size
+    print(f"Training size: {remaining_size}")
+    
+    if remaining_size <= 0:
+        raise ValueError(f"Not enough data! Need at least {val_size + test_size + 1} records, got {len(df)}")
+    
+    # First split: separate test set
+    df_train_val, df_test = train_test_split(
+        df, 
+        test_size=test_size, 
+        random_state=random_state,
+        stratify=df['y'] if 'y' in df.columns else None
+    )
+    
+    # Second split: separate validation set from remaining data
+    val_ratio = val_size / len(df_train_val)
+    df_train, df_val = train_test_split(
+        df_train_val,
+        test_size=val_ratio,
+        random_state=random_state,
+        stratify=df_train_val['y'] if 'y' in df_train_val.columns else None
+    )
+    
+    print(f"Split completed:")
+    print(f"  Train: {len(df_train)} records")
+    print(f"  Validation: {len(df_val)} records")
+    print(f"  Test: {len(df_test)} records")
+    
+    return df_train, df_val, df_test
+
 def preprocess(input_path: str, output_path: str) -> pd.DataFrame:
     """
     Preprocess a single dataset with the specified transformations.
@@ -182,31 +233,57 @@ def main():
     
     # Define file paths
     train_path = "/Users/herve/Downloads/classif/data/train.csv"
-    test_path = "/Users/herve/Downloads/classif/data/test.csv"
     output_train_path = "/Users/herve/Downloads/classif/data/train_processed.csv"
+    output_val_path = "/Users/herve/Downloads/classif/data/validation_processed.csv"
     output_test_path = "/Users/herve/Downloads/classif/data/test_processed.csv"
     
-    # Process training data
+    # Step 1: Process training data
     print("\n" + "="*50)
-    print("PROCESSING TRAINING DATA")
+    print("STEP 1: PROCESSING TRAINING DATA")
     print("="*50)
     train_processed = preprocess(train_path, output_train_path)
     
-    # Process test data
+    # Step 2: Split processed data into train/validation/test
     print("\n" + "="*50)
-    print("PROCESSING TEST DATA")
+    print("STEP 2: SPLITTING DATA INTO TRAIN/VALIDATION/TEST")
     print("="*50)
-    test_processed = preprocess(test_path, output_test_path)
+    df_train, df_val, df_test = split_data(train_processed, val_size=50000, test_size=50000)
+    
+    # Step 3: Save the split datasets
+    print("\n" + "="*50)
+    print("STEP 3: SAVING SPLIT DATASETS")
+    print("="*50)
+    
+    # Save training set (overwrite the original processed file)
+    df_train.to_csv(output_train_path, index=False)
+    print(f"Training set saved to: {output_train_path}")
+    
+    # Save validation set
+    df_val.to_csv(output_val_path, index=False)
+    print(f"Validation set saved to: {output_val_path}")
+    
+    # Save test set
+    df_test.to_csv(output_test_path, index=False)
+    print(f"Test set saved to: {output_test_path}")
     
     # Final summary
     print("\n" + "="*50)
     print("FINAL SUMMARY")
     print("="*50)
-    print(f"Training data: {train_processed.shape}")
-    print(f"Test data: {test_processed.shape}")
+    print(f"Original training data: {train_processed.shape}")
+    print(f"Split results:")
+    print(f"  Training set: {df_train.shape}")
+    print(f"  Validation set: {df_val.shape}")
+    print(f"  Test set: {df_test.shape}")
+    
+    # Verify total records match
+    total_split = len(df_train) + len(df_val) + len(df_test)
+    print(f"Total split records: {total_split}")
+    print(f"Original records: {len(train_processed)}")
+    print(f"Records match: {total_split == len(train_processed)}")
     
     print("\n" + "="*80)
-    print("PREPROCESSING COMPLETED SUCCESSFULLY!")
+    print("PREPROCESSING AND SPLITTING COMPLETED SUCCESSFULLY!")
     print("="*80)
 
 if __name__ == "__main__":
