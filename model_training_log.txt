@@ -1,0 +1,82 @@
+================================================================================
+NEW BASE MODEL CREATION
+================================================================================
+Loading data...
+Combined data shape: (700000, 15)
+
+Applying log transformations...
+  Duration: log1p(duration)
+    Original range: [1.00, 4918.00]
+    Transformed range: [0.69, 8.50]
+  Balance: log(balance - min + 1), min=-8019.00
+    Original range: [-8019.00, 99717.00]
+    Transformed range: [0.00, 11.59]
+
+Training data shape: (560000, 5)
+Test data shape: (140000, 5)
+Features: ['duration_log', 'age', 'balance_log', 'engagement_intensity', 'risk_score']
+  ✓ Log-transformed: duration_log, balance_log
+  ✓ Original scale: age, engagement_intensity, risk_score
+
+================================================================================
+NEW BASE MODEL TRAINING AND EVALUATION
+================================================================================
+Training new base model...
+  Feature interactions: DISABLED
+  Monotonic constraints: [1, 0, 1, 1, -1]
+  Interaction constraints: 5 groups (one per feature)
+
+Model Performance:
+  ROC-AUC: 0.9431
+  Feature interactions: DISABLED - each feature used independently
+  Monotonic constraints: ENABLED (approximate enforcement)
+  Precision (0.5 threshold): 0.7299
+  Recall (0.5 threshold): 0.4697
+  F1-Score (0.5 threshold): 0.5716
+  Optimal Threshold: 0.300
+  Precision (optimal): 0.5881
+  Recall (optimal): 0.7351
+  F1-Score (optimal): 0.6535
+
+Cross-validation (5-fold):
+  Mean CV AUC: 0.9420 (+/- 0.0019)
+
+Feature Importance:
+  engagement_intensity: 0.5976
+  risk_score          : 0.2540
+  duration_log        : 0.1044
+  age                 : 0.0271
+  balance_log         : 0.0169
+
+Risk Score Analysis:
+  Risk 0:  49868 samples, 0.188 target rate
+  Risk 1:   1307 samples, 0.552 target rate
+  Risk 2:  55977 samples, 0.094 target rate
+  Risk 3:   2926 samples, 0.045 target rate
+  Risk 4:  12022 samples, 0.073 target rate
+  Risk 5:  10789 samples, 0.022 target rate
+  Risk 6:   1018 samples, 0.038 target rate
+  Risk 7:   4488 samples, 0.035 target rate
+  Risk 8:    925 samples, 0.045 target rate
+  Risk 9:    281 samples, 0.060 target rate
+  Risk 10:    380 samples, 0.045 target rate
+  Risk 12:     19 samples, 0.000 target rate
+
+Creating visualizations...
+Visualization saved as: new_base_model_performance.png
+Model saved to: /Users/herve/Downloads/classif/new_base_model.pkl
+Metadata saved to: /Users/herve/Downloads/classif/new_base_model_metadata.json
+
+================================================================================
+NEW BASE MODEL CREATION COMPLETED!
+================================================================================
+✅ Model ROC-AUC: 0.9431
+✅ Features: 5 (duration_log, age, balance_log, engagement_intensity, risk_score)
+✅ Derived features preserved: engagement_intensity, risk_score
+✅ Feature interactions: DISABLED (each feature used independently)
+✅ Monotonic constraints: ENABLED (approximate enforcement)
+   - duration: increasing
+   - balance: increasing
+   - engagement_intensity: increasing
+   - risk_score: decreasing
+   - age: no constraint
