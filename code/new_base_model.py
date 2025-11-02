@@ -11,6 +11,8 @@ import xgboost as xgb
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, classification_report
 from sklearn.preprocessing import LabelEncoder
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore')
@@ -103,32 +105,79 @@ def prepare_data(train_path, test_path):
     
     return X_train, X_test, y_train, y_test, feature_names
 
-def create_new_base_model():
+def create_new_base_model(feature_names: list):
     """
     Create the new base model with optimized hyperparameters.
+    
+    Model configuration:
+    - Feature interactions DISABLED (each feature used independently)
+    - Monotonic constraints ENABLED (approximate enforcement)
+    
+    Args:
+        feature_names (list): List of feature names (required)
+                             Used to create interaction constraints and monotonic constraints.
     
     Returns:
         xgb.XGBClassifier: Optimized XGBoost model
     """
-    # Optimized hyperparameters based on previous analysis
-    model = xgb.XGBClassifier(
-        n_estimators=200,        # More trees for better learning
-        max_depth=8,             # Deeper trees for complex patterns
-        learning_rate=0.05,      # Slower learning for better generalization
-        subsample=0.8,           # Prevent overfitting
-        colsample_bytree=0.8,    # Feature sampling
-        reg_alpha=0.1,           # L1 regularization
-        reg_lambda=1.0,          # L2 regularization
-        random_state=42,
-        verbosity=0,
-        eval_metric='logloss'
-    )
+    # Base hyperparameters
+    params = {
+        'n_estimators': 200,        # More trees for better learning
+        'max_depth': 8,             # Deeper trees for complex patterns
+        'learning_rate': 0.05,      # Slower learning for better generalization
+        'subsample': 0.8,           # Prevent overfitting
+        'colsample_bytree': 0.8,    # Feature sampling
+        'reg_alpha': 0.1,           # L1 regularization
+        'reg_lambda': 1.0,          # L2 regularization
+        'random_state': 42,
+        'verbosity': 0,
+        'eval_metric': 'logloss',
+        'tree_method': 'hist'       # Required for monotonic constraints support
+    }
+    
+    # Disable feature interactions by constraining each feature to its own group
+    # This prevents any two features from appearing together in the same tree path
+    # When using DataFrames, XGBoost expects feature names, not indices
+    # Format: [['feature0'], ['feature1'], ...] means each feature can only interact with itself
+    if feature_names is None:
+        raise ValueError("feature_names must be provided")
+    params['interaction_constraints'] = [[name] for name in feature_names]
+    
+    # Set monotonic constraints
+    # NOTE: XGBoost's monotonic constraints are APPROXIMATE and guide tree building.
+    # They do NOT guarantee perfect monotonicity, especially in sparse data regions.
+    # The constraints help enforce general monotonic trends but may allow small violations.
+    # Format: list of integers, one per feature in feature order
+    # 1 = monotonic increasing, -1 = monotonic decreasing, 0 = no constraint
+    # Feature order: ['duration', 'age', 'balance', 'engagement_intensity', 'risk_score']
+    # Based on domain knowledge:
+    # - duration: increasing (longer calls → more conversion)
+    # - age: no constraint (could have optimal age range)
+    # - balance: increasing (more money → more likely to convert)
+    # - engagement_intensity: increasing (higher engagement → more conversion)
+    # - risk_score: decreasing (higher risk → less likely to convert)
+    if feature_names is not None:
+        monotonic_map = {
+            'duration': 1,              # Increasing: longer calls → more conversion
+            'age': 0,                   # No constraint: optimal age range
+            'balance': 1,               # Increasing: more money → more likely
+            'engagement_intensity': 1,  # Increasing: higher engagement → more conversion
+            'risk_score': -1            # Decreasing: higher risk → less conversion
+        }
+        # Create monotonic constraints list in feature order
+        params['monotonic_constraints'] = [monotonic_map.get(fname, 0) for fname in feature_names]
+    
+    model = xgb.XGBClassifier(**params)
     
     return model
 
 def train_and_evaluate_model(X_train, X_test, y_train, y_test, feature_names):
     """
     Train the new base model and evaluate its performance.
+    
+    The model has:
+    - Feature interactions DISABLED (each feature used independently)
+    - Monotonic constraints ENABLED (approximate enforcement)
     
     Args:
         X_train (pd.DataFrame): Training features
@@ -145,9 +194,16 @@ def train_and_evaluate_model(X_train, X_test, y_train, y_test, feature_names):
     print("="*80)
     
     # Create and train model
-    model = create_new_base_model()
+    model = create_new_base_model(feature_names=feature_names)
     
-    print("Training new base model...")
+    # Display model constraints
+    monotonic = model.get_params().get('monotonic_constraints')
+    interaction = model.get_params().get('interaction_constraints')
+    print(f"Training new base model...")
+    print(f"  Feature interactions: DISABLED")
+    print(f"  Monotonic constraints: {monotonic}")
+    print(f"  Interaction constraints: {len(interaction)} groups (one per feature)")
+    
     model.fit(X_train, y_train)
     
     # Make predictions
@@ -174,6 +230,8 @@ def train_and_evaluate_model(X_train, X_test, y_train, y_test, feature_names):
     
     print(f"\nModel Performance:")
     print(f"  ROC-AUC: {auc:.4f}")
+    print(f"  Feature interactions: DISABLED - each feature used independently")
+    print(f"  Monotonic constraints: ENABLED (approximate enforcement)")
     print(f"  Precision (0.5 threshold): {precision:.4f}")
     print(f"  Recall (0.5 threshold): {recall:.4f}")
     print(f"  F1-Score (0.5 threshold): {f1:.4f}")
@@ -217,71 +275,129 @@ def train_and_evaluate_model(X_train, X_test, y_train, y_test, feature_names):
         'feature_importance': feature_importance
     }
 
-def create_visualization(results, feature_names):
+def create_visualization(results: dict, feature_names: list) -> None:
     """
     Create visualization of model performance and feature importance.
     
     Args:
-        results (dict): Model performance results
-        feature_names (list): List of feature names
+        results (dict): Model performance results containing:
+            - 'feature_importance': DataFrame with 'feature' and 'importance' columns
+            - 'auc': float, ROC-AUC score
+            - 'precision': float, precision score
+            - 'recall': float, recall score
+            - 'f1': float, F1 score
+        feature_names (list): List of feature names (for validation)
     """
-    print("\nCreating visualizations...")
-    
-    # Feature importance plot
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-    
-    # Feature importance
-    importance_df = results['feature_importance']
-    bars = ax1.barh(range(len(importance_df)), importance_df['importance'], color='lightgreen', alpha=0.7)
-    ax1.set_yticks(range(len(importance_df)))
-    ax1.set_yticklabels(importance_df['feature'])
-    ax1.set_xlabel('Feature Importance')
-    ax1.set_title('New Base Model - Feature Importance', fontweight='bold')
-    ax1.grid(axis='x', alpha=0.3)
-    
-    # Add value labels
-    for i, (bar, importance) in enumerate(zip(bars, importance_df['importance'])):
-        ax1.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2, 
-                f'{importance:.3f}', ha='left', va='center', fontsize=10)
-    
-    # Performance metrics
-    metrics = ['ROC-AUC', 'Precision', 'Recall', 'F1-Score']
-    values = [results['auc'], results['precision'], results['recall'], results['f1']]
-    
-    bars2 = ax2.bar(metrics, values, color='lightblue', alpha=0.7)
-    ax2.set_ylabel('Score')
-    ax2.set_title('New Base Model - Performance Metrics', fontweight='bold')
-    ax2.grid(axis='y', alpha=0.3)
-    ax2.set_ylim(0, 1)
-    
-    # Add value labels
-    for bar, value in zip(bars2, values):
-        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                f'{value:.3f}', ha='center', va='bottom', fontsize=10)
-    
-    plt.tight_layout()
-    plt.savefig('/Users/herve/Downloads/classif/new_base_model_performance.png', 
-                dpi=300, bbox_inches='tight')
-    print("Visualization saved as: new_base_model_performance.png")
-    plt.show()
+    try:
+        print("\nCreating visualizations...")
+        
+        # Validate inputs
+        if 'feature_importance' not in results:
+            raise ValueError("Results dictionary must contain 'feature_importance' key")
+        
+        importance_df = results['feature_importance']
+        
+        # Ensure importance_df is a DataFrame with required columns
+        if not isinstance(importance_df, pd.DataFrame):
+            raise TypeError("feature_importance must be a pandas DataFrame")
+        
+        if 'feature' not in importance_df.columns or 'importance' not in importance_df.columns:
+            raise ValueError("feature_importance DataFrame must contain 'feature' and 'importance' columns")
+        
+        # Ensure importance values are numeric
+        importance_df = importance_df.copy()
+        importance_df['importance'] = pd.to_numeric(importance_df['importance'], errors='coerce')
+        
+        # Sort by importance for better visualization
+        importance_df = importance_df.sort_values('importance', ascending=True)
+        
+        # Create figure with subplots
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        
+        # Feature importance plot
+        bars = ax1.barh(range(len(importance_df)), importance_df['importance'].values, 
+                       color='lightgreen', alpha=0.7)
+        ax1.set_yticks(range(len(importance_df)))
+        ax1.set_yticklabels(importance_df['feature'].values)
+        ax1.set_xlabel('Feature Importance')
+        ax1.set_title('New Base Model - Feature Importance', fontweight='bold')
+        ax1.grid(axis='x', alpha=0.3)
+        
+        # Add value labels
+        for bar, importance in zip(bars, importance_df['importance'].values):
+            ax1.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2, 
+                    f'{importance:.3f}', ha='left', va='center', fontsize=10)
+        
+        # Performance metrics
+        metrics = ['ROC-AUC', 'Precision', 'Recall', 'F1-Score']
+        values = [
+            float(results['auc']), 
+            float(results['precision']), 
+            float(results['recall']), 
+            float(results['f1'])
+        ]
+        
+        bars2 = ax2.bar(metrics, values, color='lightblue', alpha=0.7)
+        ax2.set_ylabel('Score')
+        ax2.set_title('New Base Model - Performance Metrics', fontweight='bold')
+        ax2.grid(axis='y', alpha=0.3)
+        ax2.set_ylim(0, 1)
+        
+        # Add value labels
+        for bar, value in zip(bars2, values):
+            ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
+                    f'{value:.3f}', ha='center', va='bottom', fontsize=10)
+        
+        plt.tight_layout()
+        output_path = '/Users/herve/Downloads/classif/new_base_model_performance.png'
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)  # Close figure to free memory
+        print(f"Visualization saved as: new_base_model_performance.png")
+        
+    except Exception as e:
+        print(f"\nError creating visualization: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        raise
 
-def save_model(model, feature_names, results):
+def save_model(model, feature_names: list, results: dict) -> None:
     """
     Save the trained model and metadata.
     
     Args:
         model: Trained XGBoost model
         feature_names (list): List of feature names
-        results (dict): Model performance results
+        results (dict): Model performance results containing:
+            - 'auc': float, ROC-AUC score
+            - 'precision': float, precision score
+            - 'recall': float, recall score
+            - 'f1': float, F1 score
+            - 'threshold': float, optimal threshold
+            - 'feature_importance': DataFrame with 'feature' and 'importance' columns
     """
     import joblib
+    import json
     
     # Save model
     model_path = '/Users/herve/Downloads/classif/new_base_model.pkl'
     joblib.dump(model, model_path)
     print(f"Model saved to: {model_path}")
     
-    # Save metadata
+    # Convert feature importance DataFrame to dict with native Python types
+    feature_importance_dict = results['feature_importance'].copy()
+    # Convert importance column to native Python float
+    feature_importance_dict['importance'] = feature_importance_dict['importance'].astype(float)
+    feature_importance_records = feature_importance_dict.to_dict('records')
+    
+    # Ensure all values in feature_importance records are native Python types
+    for record in feature_importance_records:
+        record['importance'] = float(record['importance'])
+    
+    # Get model hyperparameters for metadata
+    model_params = model.get_params()
+    
+    # Save metadata with all values converted to native Python types
     metadata = {
         'feature_names': feature_names,
         'hyperparameters': {
@@ -291,19 +407,20 @@ def save_model(model, feature_names, results):
             'subsample': 0.8,
             'colsample_bytree': 0.8,
             'reg_alpha': 0.1,
-            'reg_lambda': 1.0
+            'reg_lambda': 1.0,
+            'monotonic_constraints': model_params.get('monotonic_constraints'),
+            'interaction_constraints': 'disabled' if model_params.get('interaction_constraints') else 'enabled'
         },
         'performance': {
-            'auc': results['auc'],
-            'precision': results['precision'],
-            'recall': results['recall'],
-            'f1': results['f1'],
-            'threshold': results['threshold']
+            'auc': float(results['auc']),
+            'precision': float(results['precision']),
+            'recall': float(results['recall']),
+            'f1': float(results['f1']),
+            'threshold': float(results['threshold'])
         },
-        'feature_importance': results['feature_importance'].to_dict('records')
+        'feature_importance': feature_importance_records
     }
     
-    import json
     metadata_path = '/Users/herve/Downloads/classif/new_base_model_metadata.json'
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
@@ -312,6 +429,15 @@ def save_model(model, feature_names, results):
 def main():
     """
     Main function to create and evaluate the new base model.
+    
+    Creates a model with:
+    - Feature interactions DISABLED (each feature used independently)
+    - Monotonic constraints ENABLED (approximate enforcement)
+      * duration: increasing
+      * balance: increasing
+      * engagement_intensity: increasing
+      * risk_score: decreasing
+      * age: no constraint
     """
     print("="*80)
     print("NEW BASE MODEL CREATION")
@@ -324,8 +450,10 @@ def main():
     # Prepare data
     X_train, X_test, y_train, y_test, feature_names = prepare_data(train_path, test_path)
     
-    # Train and evaluate model
-    results = train_and_evaluate_model(X_train, X_test, y_train, y_test, feature_names)
+    # Train and evaluate model WITHOUT feature interactions and WITH monotonic constraints
+    results = train_and_evaluate_model(
+        X_train, X_test, y_train, y_test, feature_names
+    )
     
     # Create visualizations
     create_visualization(results, feature_names)
@@ -336,9 +464,16 @@ def main():
     print("\n" + "="*80)
     print("NEW BASE MODEL CREATION COMPLETED!")
     print("="*80)
-    print(f"✅ Model Performance: ROC-AUC = {results['auc']:.4f}")
+    print(f"✅ Model ROC-AUC: {results['auc']:.4f}")
     print(f"✅ Features: {len(feature_names)} ({', '.join(feature_names)})")
-    print(f"✅ Ready for further feature engineering!")
+    print(f"✅ Derived features preserved: engagement_intensity, risk_score")
+    print(f"✅ Feature interactions: DISABLED (each feature used independently)")
+    print(f"✅ Monotonic constraints: ENABLED (approximate enforcement)")
+    print(f"   - duration: increasing")
+    print(f"   - balance: increasing")
+    print(f"   - engagement_intensity: increasing")
+    print(f"   - risk_score: decreasing")
+    print(f"   - age: no constraint")
     
     return results
 
