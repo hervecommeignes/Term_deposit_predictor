@@ -241,8 +241,8 @@ def train_and_evaluate_model(X_train, X_test, y_train, y_test, feature_names):
     print(f"  F1-Score (optimal): {optimal_f1:.4f}")
     
     # Cross-validation
-    print(f"\nCross-validation (5-fold):")
-    cv_scores = cross_val_score(model, X_train, y_train, cv=5, scoring='roc_auc', n_jobs=-1)
+    print(f"\nCross-validation (3-fold):")
+    cv_scores = cross_val_score(model, X_train, y_train, cv=3, scoring='roc_auc', n_jobs=-1)
     print(f"  Mean CV AUC: {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
     
     # Feature importance
@@ -255,13 +255,25 @@ def train_and_evaluate_model(X_train, X_test, y_train, y_test, feature_names):
     for _, row in feature_importance.iterrows():
         print(f"  {row['feature']:<20}: {row['importance']:.4f}")
     
+    # Discrete feature analysis (risk_score and engagement_intensity)
+    # Both are discrete integer features that can be analyzed by grouping
+    print(f"\nDiscrete Feature Analysis:")
+    
     # Risk score analysis
-    print(f"\nRisk Score Analysis:")
+    print(f"\n  Risk Score Analysis:")
     risk_analysis = pd.concat([X_test, y_test], axis=1).groupby('risk_score')['y'].agg(['count', 'sum', 'mean'])
     for risk_level in sorted(risk_analysis.index):
         count = risk_analysis.loc[risk_level, 'count']
         target_rate = risk_analysis.loc[risk_level, 'mean']
-        print(f"  Risk {risk_level}: {count:6d} samples, {target_rate:.3f} target rate")
+        print(f"    Risk {risk_level}: {count:6d} samples, {target_rate:.3f} target rate")
+    
+    # Engagement intensity analysis
+    print(f"\n  Engagement Intensity Analysis:")
+    engagement_analysis = pd.concat([X_test, y_test], axis=1).groupby('engagement_intensity')['y'].agg(['count', 'sum', 'mean'])
+    for eng_level in sorted(engagement_analysis.index):
+        count = engagement_analysis.loc[eng_level, 'count']
+        target_rate = engagement_analysis.loc[eng_level, 'mean']
+        print(f"    Engagement {eng_level}: {count:6d} samples, {target_rate:.3f} target rate")
     
     return {
         'model': model,

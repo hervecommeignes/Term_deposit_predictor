@@ -13,43 +13,11 @@
     "subsample": 0.8,
     "colsample_bytree": 0.8,
     "reg_alpha": 0.1,
-    "reg_lambda": 1.0,
-    "monotonic_constraints": [
-      1,
-      0,
-      1,
-      1,
-      -1
-    ],
-    "interaction_constraints": "disabled"
+    "reg_lambda": 1.0
   },
   "performance": {
-    "auc": 0.9430545330010525,
-    "precision": 0.5880653563817192,
-    "recall": 0.7351252146113315,
-    "f1": 0.6534585684824726,
-    "threshold": 0.3003682792186737
-  },
-  "feature_importance": [
-    {
-      "feature": "engagement_intensity",
-      "importance": 0.5976088643074036
-    },
-    {
-      "feature": "risk_score",
-      "importance": 0.25395992398262024
-    },
-    {
-      "feature": "duration",
-      "importance": 0.1044098362326622
-    },
-    {
-      "feature": "age",
-      "importance": 0.027073660865426064
-    },
-    {
-      "feature": "balance",
-      "importance": 0.016947714611887932
-    }
-  ]
-}
+    "auc": 0.9496070690374202,
+    "precision": 0.6374960908996143,
+    "recall": 0.7241134331892723,
+    "f1": 0.6780863634442206,
+    "threshold": 
