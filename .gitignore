@@ -3,3 +3,23 @@ data_old/
 *.pyc
 *.mdc
 *.DS_Store
+
+# Python virtual environment
+venv/
+env/
+.venv/
+
+# Model files (binary, can be regenerated)
+*.pkl
+*.pth
+*.h5
+*.joblib
+
+# IDE
+.vscode/
+.idea/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
